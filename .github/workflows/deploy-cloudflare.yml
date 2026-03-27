@@ -1,0 +1,100 @@
+name: Deploy Cloudflare
+
+on:
+  workflow_call:
+    inputs:
+      environment-name:
+        required: true
+        type: string
+    secrets:
+      cloudflare-api-token:
+        required: true
+      frontend-slack-webhook-url:
+        required: true
+
+env:
+  NODE_VERSION: 24.14.0
+
+jobs:
+  deploy:
+    name: Deploy guest-portal (${{ inputs.environment-name }})
+    runs-on: self-hosted
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Deploy to Cloudflare Pages
+        run: |
+          for attempt in 1 2 3; do
+            echo "Attempt $attempt of 3..."
+            if npx wrangler pages deploy . \
+              --project-name=guestway-frontend-guest-portal-${{ inputs.environment-name }} \
+              --branch=${{ github.ref_name }}; then
+              echo "Deploy succeeded on attempt $attempt"
+              exit 0
+            fi
+            echo "Attempt $attempt failed"
+            [ "$attempt" -lt 3 ] && sleep 15
+          done
+          echo "All 3 attempts failed"
+          exit 1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.cloudflare-api-token }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Notify Slack on success
+        if: success()
+        uses: slackapi/slack-github-action@v3
+        with:
+          webhook: ${{ secrets.frontend-slack-webhook-url }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "channel": "fe-releases",
+              "attachments": [{
+                "color": "#36a64f",
+                "author_name": "guests.xepa.be",
+                "author_link": "https://guests.xepa.be/",
+                "pretext": ":rocket: Successfully released guest-portal",
+                "fields": [
+                  {"value": " "},
+                  {"value": "\u2022 *Repo:* `guest_portal`"},
+                  {"value": "\u2022 *Branch:* `${{ github.ref_name }}`"},
+                  {"value": "\u2022 *Logs:* <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View in GitHub Actions>"}
+                ],
+                "footer": "<https://github.com/anthonyvancauwenberghe/guest_portal|anthonyvancauwenberghe/guest_portal>"
+              }]
+            }
+
+      - name: Notify Slack on failure
+        if: failure()
+        uses: slackapi/slack-github-action@v3
+        with:
+          webhook: ${{ secrets.frontend-slack-webhook-url }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "channel": "fe-releases",
+              "attachments": [{
+                "color": "#ff0000",
+                "author_name": "guests.xepa.be",
+                "author_link": "https://guests.xepa.be/",
+                "pretext": ":warning: Failed to release guest-portal",
+                "fields": [
+                  {"value": " "},
+                  {"value": "\u2022 *Repo:* `guest_portal`"},
+                  {"value": "\u2022 *Branch:* `${{ github.ref_name }}`"},
+                  {"value": "\u2022 *Logs:* <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View in GitHub Actions>"}
+                ],
+                "footer": "<https://github.com/anthonyvancauwenberghe/guest_portal|anthonyvancauwenberghe/guest_portal>"
+              }]
+            }
