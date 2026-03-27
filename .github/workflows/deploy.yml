@@ -1,0 +1,19 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/deploy-cloudflare.yml
+    with:
+      environment-name: production
+    secrets:
+      cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      frontend-slack-webhook-url: ${{ secrets.FRONTEND_SLACK_WEBHOOK_URL }}
